@@ -1,0 +1,11 @@
+[package]
+name = "o5m-decode"
+version = "1.0.0"
+edition = "2018"
+
+[dependencies]
+async-std = { version = "1.9.0", features = ["attributes","unstable"] }
+async-trait = "0.1.48"
+futures-lite = "1.11.3"
+futures = "0.3.13"
+pin-project-lite = "0.2.6"
