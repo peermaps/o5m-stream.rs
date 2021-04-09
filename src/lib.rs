@@ -1,3 +1,31 @@
+//! # o5m-stream
+//!
+//! streaming async o5m decoder
+//!
+//! # example
+//!
+//! ``` rust,no_run
+//! use async_std::{prelude::*,fs::File,io};
+//!
+//! type Error = Box<dyn std::error::Error+Send+Sync>;
+//! type R = Box<dyn io::Read+Unpin>;
+//!
+//! #[async_std::main]
+//! async fn main() -> Result<(),Error> {
+//!   let args = std::env::args().collect::<Vec<String>>();
+//!   let infile: R = match args.get(1).unwrap_or(&"-".into()).as_str() {
+//!     "-" => Box::new(io::stdin()),
+//!     x => Box::new(File::open(x).await?),
+//!   };
+//!   let mut stream = o5m_stream::decode(infile);
+//!   while let Some(result) = stream.next().await {
+//!     let r = result?;
+//!     println!["{:?}", r];
+//!   }
+//!   Ok(())
+//! }
+//! ```
+
 #![feature(async_closure)]
 use async_std::{prelude::*,stream::Stream,io};
 use std::collections::VecDeque;
@@ -189,7 +217,7 @@ impl Decoder {
         let (s,reflen) = parse::unsigned(&buf[offset..])?;
         offset += s;
         let mut members = vec![];
-        let mut prev_id = match &self.prev {
+        let prev_id = match &self.prev {
           Some(Dataset::Relation(rel)) => rel.data.as_ref().and_then(|d| {
             d.members.last().and_then(|m| Some(m.id))
           }).unwrap_or(0),
@@ -229,7 +257,7 @@ impl Decoder {
               0x32 => ElementType::Relation(),
               x => {
                 return err(&format!["expected 0x30, 0x31, or 0x32 ('0','1', or '2') for \
-                  element type. got: 0x{:02x}", mstring[0]]);
+                  element type. got: 0x{:02x}", x]);
               }
             },
             role: String::from_utf8(mstring[1..].to_vec())?,
@@ -283,6 +311,7 @@ fn err<T>(message: &str) -> Result<T,Box<dyn std::error::Error+Send+Sync>> {
   Err(Box::new(DecoderError { message: message.to_string() }))
 }
 
+/// Transform the given binary stream `reader` into an stream of fallible `Dataset` items.
 pub fn decode(reader: Box<dyn io::Read+Unpin>) -> DecodeStream {
   let state = Decoder::new(reader);
   Box::new(unfold::unfold(state, async move |mut qs| {
