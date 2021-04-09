@@ -1,5 +1,5 @@
 use crate::{Dataset,Info,Element};
-type Strings = std::collections::VecDeque<(String,String)>;
+type Strings = std::collections::VecDeque<(Vec<u8>,Vec<u8>)>;
 
 type Error = Box<dyn std::error::Error+Send+Sync>;
 
@@ -7,11 +7,7 @@ type Error = Box<dyn std::error::Error+Send+Sync>;
 pub struct ParseError {
   pub message: String,
 }
-impl ParseError {
-  fn new(msg: &str) -> Box<Self> {
-    Box::new(Self { message: msg.into() })
-  }
-}
+fn err(msg: &str) -> Error { Box::new(ParseError { message: msg.into() }) }
 impl std::error::Error for ParseError {}
 impl std::fmt::Display for ParseError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,15 +63,27 @@ pub fn info(buf: &[u8], prev: &Option<Dataset>, strings: &mut Strings)
     offset += s;
     if x == 0 {
       let (s,x) = unsigned(&buf[offset..])?;
+      let uid_bytes = &buf[offset..offset+s];
       offset += s;
       info.uid = Some(x);
-      let i = buf[offset..].iter().position(|p| *p == 0x00).unwrap_or(buf.len());
+      if buf[offset] != 0 {
+        return Err(err(&format!["expected 0 after decoding uid, found: {}", buf[offset]]));
+      }
+      offset += 1;
+      let i = offset + buf[offset..].iter()
+        .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
       info.user = Some(std::str::from_utf8(&buf[offset..i])?.to_string());
-      offset = i;
+      strings.push_front((uid_bytes.to_vec(),buf[offset..i].to_vec()));
+      if strings.len() > 15_000 { strings.pop_back(); }
+      offset = i+1;
     } else {
-      //self.fields.uid = self.unsigned(self.strings[x].0);
-      //self.fields.user = self.strings[x].1;
-      unimplemented![];
+      let pair = strings.get((x as usize)-1);
+      if pair.is_none() {
+        return Err(err(&format!["string at index {} not available", x]));
+      }
+      let (uid_bytes,user_bytes) = pair.unwrap();
+      info.uid = Some(unsigned(&uid_bytes)?.1);
+      info.user = Some(String::from_utf8(user_bytes.to_vec())?);
     }
   }
   Ok((offset, (id, Some(info))))
@@ -90,49 +98,58 @@ pub fn tags(buf: &[u8], strings: &mut Strings) -> Result<(usize,Tags),Error> {
     let (s,x) = unsigned(&buf[offset..])?;
     offset += s;
     if x == 0 {
-      let i = buf[offset..].iter().position(|p| *p == 0x00).unwrap_or(buf.len());
-      let key = std::str::from_utf8(&buf[offset..i])?.to_string();
-      offset = i;
-      let j = buf[offset..].iter().position(|p| *p == 0x00).unwrap_or(buf.len());
-      let value = std::str::from_utf8(&buf[offset..j])?.to_string();
-      offset = j;
+      let i = offset + buf[offset..].iter()
+        .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
+      let key_bytes = &buf[offset..i];
+      let key = std::str::from_utf8(key_bytes)?.to_string();
+      offset = i+1;
+      let j = offset + buf[offset..].iter()
+        .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
+      let value_bytes = &buf[offset..j];
+      let value = std::str::from_utf8(value_bytes)?.to_string();
+      offset = j+1;
       tags.insert(key, value);
+      strings.push_front((key_bytes.to_vec(),value_bytes.to_vec()));
+      if strings.len() > 15_000 { strings.pop_back(); }
     } else {
-      // let (key,value) = self.strings[x];
-      // self.fields.tags.insert(key, value);
-      unimplemented![];
+      let pair = strings.get((x as usize)-1);
+      if pair.is_none() {
+        return Err(err(&format!["string at index {} not available", x]));
+      }
+      let (key_bytes,value_bytes) = pair.unwrap();
+      let key = String::from_utf8(key_bytes.to_vec())?;
+      let value = String::from_utf8(value_bytes.to_vec())?;
+      tags.insert(key, value);
     }
   }
   Ok((offset,tags))
 }
 
 pub fn signed(buf: &[u8]) -> Result<(usize,i64),Error> {
-  let mut value = 0i64;
-  let mut npow = 1i64;
-  let mut sign = 1i64;
+  let mut value = 0;
+  let mut lshift = 0;
   for (i,b) in buf.iter().enumerate() {
-    value += ((*b as i64) & (match npow { 1 => 0x7e, _ => 0x7f })) * npow;
-    if npow == 1 && (b & 0x01) == 1 {
-      sign = -1;
-    }
-    npow *= 0x80;
+    value += ((*b as i64) & 0x7f) << lshift;
+    lshift += 7;
     if *b < 0x80 {
+      let sign = match value % 2 { 0 => 1, _ => -1 };
       value = value * sign / 2;
+      if sign < 0 { value -= 1 }
       return Ok((i+1,value));
     }
   }
-  Err(ParseError::new("unterminated signed integer"))
+  Err(err("unterminated signed integer"))
 }
 
 pub fn unsigned(buf: &[u8]) -> Result<(usize,u64),Error> {
-  let mut value = 0u64;
-  let mut npow = 1u64;
+  let mut value = 0;
+  let mut lshift = 0;
   for (i,b) in buf.iter().enumerate() {
-    value += (*b as u64) & (match npow { 1 => 0x7e, _ => 0x7f }) * npow;
-    npow *= 0x80;
+    value += ((*b as u64) & 0x7f) << lshift;
+    lshift += 7;
     if *b < 0x80 {
       return Ok((i+1,value));
     }
   }
-  Err(ParseError::new("unterminated unsigned integer"))
+  Err(err("unterminated unsigned integer"))
 }

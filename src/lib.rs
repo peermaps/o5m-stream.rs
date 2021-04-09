@@ -23,9 +23,9 @@ struct Decoder {
   data_type: Option<DatasetType>,
   len: usize,
   npow: u64,
-  chunks: Vec<Vec<u8>>,
+  chunk: Vec<u8>,
   size: usize,
-  strings: VecDeque<(String,String)>,
+  strings: VecDeque<(Vec<u8>,Vec<u8>)>,
   prev: Option<Dataset>,
 }
 
@@ -39,7 +39,7 @@ impl Decoder {
       data_type: None,
       len: 0,
       npow: 1,
-      chunks: vec![],
+      chunk: vec![],
       size: 0,
       strings: VecDeque::new(),
       prev: None,
@@ -85,17 +85,17 @@ impl Decoder {
           }
         } else if self.state == State::Data() {
           let j = n.min(i+self.len-self.size);
-          self.chunks.push(self.buffer[i..j].to_vec());
+          self.chunk.extend_from_slice(&self.buffer[i..j]);
           self.size += j-i;
           if self.size >= self.len {
-            let buf = self.chunks.concat();
-            self.chunks.clear();
-            if let Some(data) = self.flush(&buf)? {
+            if let Some(data) = self.flush()? {
+              self.prev = Some(data.clone());
               self.queue.push_back(data);
             }
             self.state = State::Type();
             self.len = 0;
             self.size = 0;
+            self.chunk.clear();
           }
           i = j - 1;
         } else if self.state == State::End() && b != 0xfe {
@@ -105,12 +105,12 @@ impl Decoder {
         }
         i += 1;
       }
-      eprintln!["n={}",n];
     }
     Ok(None)
   }
-  fn flush(&mut self, buf: &[u8]) -> Result<Option<Dataset>,Error> {
+  fn flush(&mut self) -> Result<Option<Dataset>,Error> {
     let mut offset = 0;
+    let buf = &self.chunk;
     Ok(match self.data_type {
       Some(DatasetType::Timestamp()) => {
         let (_,time) = parse::signed(&buf[offset..])?;
@@ -119,49 +119,61 @@ impl Decoder {
       Some(DatasetType::Node()) => {
         let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
         offset += s;
-        let longitude = {
-          let (s,x) = parse::signed(&buf[offset..])?;
-          offset += s;
-          (x + (match &self.prev {
-            Some(Dataset::Node(node)) => node.data.as_ref()
-              .and_then(|data| Some(data.longitude)),
-            _ => None,
-          }.unwrap_or(0) as i64)) as i32
-        };
-        let latitude = {
-          let (s,x) = parse::signed(&buf[offset..])?;
-          offset += s;
-          (x + (match &self.prev {
-            Some(Dataset::Node(node)) => node.data.as_ref()
-              .and_then(|data| Some(data.longitude)),
-            _ => None,
-          }.unwrap_or(0) as i64)) as i32
-        };
-        let (_,tags) = parse::tags(&buf[offset..], &mut self.strings)?;
-        Some(Dataset::Node(Node {
-          id,
-          info,
-          data: Some(NodeData { longitude, latitude }),
-          tags,
-        }))
+        if offset == buf.len() {
+          Some(Dataset::Node(Node {
+            id,
+            info,
+            data: None,
+            tags: std::collections::HashMap::new(),
+          }))
+        } else {
+          let longitude = {
+            let (s,x) = parse::signed(&buf[offset..])?;
+            offset += s;
+            (x + (match &self.prev {
+              Some(Dataset::Node(node)) => node.data.as_ref()
+                .and_then(|data| Some(data.longitude)),
+              _ => None,
+            }.unwrap_or(0) as i64)) as i32
+          };
+          let latitude = {
+            let (s,x) = parse::signed(&buf[offset..])?;
+            offset += s;
+            (x + (match &self.prev {
+              Some(Dataset::Node(node)) => node.data.as_ref()
+                .and_then(|data| Some(data.longitude)),
+              _ => None,
+            }.unwrap_or(0) as i64)) as i32
+          };
+          let (_,tags) = parse::tags(&buf[offset..], &mut self.strings)?;
+          Some(Dataset::Node(Node {
+            id,
+            info,
+            data: Some(NodeData { longitude, latitude }),
+            tags,
+          }))
+        }
       },
       Some(DatasetType::Way()) => {
         let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
         offset += s;
+        // reflen is the number of BYTES, not the number of refs
         let (s,reflen) = parse::unsigned(&buf[offset..])?;
         offset += s;
         let mut refs = vec![];
-        for i in 0..reflen {
+        let mut prev_ref = match &self.prev {
+          Some(Dataset::Way(way)) => way.data.as_ref().and_then(|d| {
+            d.refs.last().and_then(|r| Some(*r))
+          }).unwrap_or(0),
+          _ => 0
+        };
+        let ref_end = offset + reflen as usize;
+        while offset < ref_end {
           let (s,x) = parse::signed(&buf[offset..])?;
           offset += s;
-          let r = (x + (match (i,&self.prev) {
-            (0,Some(Dataset::Way(way))) => way.data.as_ref().and_then(|d| {
-              d.refs.last().and_then(|r| Some(*r))
-            }),
-            (0,_) => None,
-            _ => refs.last().and_then(|r| Some(*r)),
-          }.unwrap_or(0) as i64)) as u64;
+          let r = (x + (prev_ref as i64)) as u64;
           refs.push(r);
+          prev_ref = r;
         }
         let (_,tags) = parse::tags(&buf[offset..], &mut self.strings)?;
         Some(Dataset::Way(Way {
@@ -172,16 +184,65 @@ impl Decoder {
         }))
       },
       Some(DatasetType::Relation()) => {
-        /*
+        let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
+        offset += s;
+        // reflen is the number of BYTES, not the number of refs
+        let (s,reflen) = parse::unsigned(&buf[offset..])?;
+        offset += s;
+        let mut members = vec![];
+        let mut prev_id = match &self.prev {
+          Some(Dataset::Relation(rel)) => rel.data.as_ref().and_then(|d| {
+            d.members.last().and_then(|m| Some(m.id))
+          }).unwrap_or(0),
+          _ => 0
+        };
+        let ref_end = offset + reflen as usize;
+        while offset < ref_end {
+          let m_id = {
+            let (s,x) = parse::signed(&buf[offset..])?;
+            offset += s;
+            (x + (prev_id as i64)) as u64
+          };
+          let mstring = {
+            let (s,x) = parse::unsigned(&buf[offset..])?;
+            offset += s;
+            if x == 0 {
+              let i = offset + buf[offset..].iter()
+                .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
+              let mbytes = &buf[offset..i];
+              offset = i+1;
+              self.strings.push_front((mbytes.to_vec(),vec![]));
+              if self.strings.len() > 15_000 { self.strings.pop_back(); }
+              mbytes
+            } else {
+							let pair = self.strings.get((x as usize)-1);
+							if pair.is_none() {
+								return err(&format!["string at index {} not available", x]);
+							}
+							&pair.unwrap().0
+            }
+          };
+          members.push(RelationMember {
+            id: m_id,
+            element_type: match mstring[0] {
+              0x30 => ElementType::Node(),
+              0x31 => ElementType::Way(),
+              0x32 => ElementType::Relation(),
+              x => {
+                return err(&format!["expected 0x30, 0x31, or 0x32 ('0','1', or '2') for \
+                  element type. got: 0x{:02x}", mstring[0]]);
+              }
+            },
+            role: String::from_utf8(mstring[1..].to_vec())?,
+          });
+        }
         let (_,tags) = parse::tags(&buf[offset..], &mut self.strings)?;
-        Ok(Some(Dataset::Relation(Relation {
+        Some(Dataset::Relation(Relation {
           id,
           info,
           data: Some(RelationData { members }),
           tags
-        })))
-        */
-        None
+        }))
       },
       Some(DatasetType::BBox()) => {
         None

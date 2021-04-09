@@ -59,6 +59,14 @@ pub struct NodeData {
   pub longitude: i32,
   pub latitude: i32,
 }
+impl NodeData {
+  pub fn get_longitude(&self) -> f32 {
+    (self.longitude as f32) / 1.0e7
+  }
+  pub fn get_latitude(&self) -> f32 {
+    (self.latitude as f32) / 1.0e7
+  }
+}
 impl Element for Node {
   fn get_id(&self) -> u64 { self.id }
   fn get_info<'a>(&'a self) -> Option<&'a Info> {
