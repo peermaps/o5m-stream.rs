@@ -18,7 +18,8 @@ enum State { Begin(), Type(), Len(), Data(), End() }
 struct Decoder {
   reader: Box<dyn io::Read+Unpin>,
   buffer: Vec<u8>,
-  queue: VecDeque<Dataset>,
+  index: usize,
+  buffer_len: usize,
   state: State,
   data_type: Option<DatasetType>,
   len: usize,
@@ -34,8 +35,9 @@ impl Decoder {
     Self {
       reader,
       buffer: vec![0;4096],
+      index: 0,
+      buffer_len: 0,
       state: State::Begin(),
-      queue: VecDeque::new(),
       data_type: None,
       len: 0,
       npow: 1,
@@ -47,14 +49,13 @@ impl Decoder {
   }
   pub async fn next_item(&mut self) -> Result<Option<Dataset>,Error> {
     loop {
-      if let Some(item) = self.queue.pop_front() {
-        return Ok(Some(item));
+      if self.index >= self.buffer_len {
+        self.buffer_len = self.reader.read(&mut self.buffer).await?;
+        self.index = 0;
+        if self.buffer_len == 0 { break }
       }
-      let n = self.reader.read(&mut self.buffer).await?;
-      if n == 0 { break }
-      let mut i = 0;
-      while i < n {
-        let b = self.buffer[i];
+      while self.index < self.buffer_len {
+        let b = self.buffer[self.index];
         if self.state == State::Begin() && b != 0xff {
           return err(&format!["first byte in frame. expected: 0xff, got: 0x{:02x}", b]);
         } else if self.state == State::Begin() {
@@ -84,26 +85,28 @@ impl Decoder {
             self.state = State::Data();
           }
         } else if self.state == State::Data() {
-          let j = n.min(i+self.len-self.size);
-          self.chunk.extend_from_slice(&self.buffer[i..j]);
-          self.size += j-i;
+          let j = self.buffer_len.min(self.index+self.len-self.size);
+          self.chunk.extend_from_slice(&self.buffer[self.index..j]);
+          self.size += j-self.index;
           if self.size >= self.len {
-            if let Some(data) = self.flush()? {
-              self.prev = Some(data.clone());
-              self.queue.push_back(data);
-            }
+            let res = self.flush()?;
             self.state = State::Type();
             self.len = 0;
             self.size = 0;
             self.chunk.clear();
+            if let Some(data) = res {
+              self.prev = Some(data.clone());
+              self.index = j;
+              return Ok(Some(data));
+            }
           }
-          i = j - 1;
+          self.index = j - 1;
         } else if self.state == State::End() && b != 0xfe {
           return err(&format!["last byte in frame. expected: 0xf3, got: 0x{:02x}", b]);
         } else if self.state == State::End() {
           // ...
         }
-        i += 1;
+        self.index += 1;
       }
     }
     Ok(None)
@@ -211,11 +214,11 @@ impl Decoder {
               if self.strings.len() > 15_000 { self.strings.pop_back(); }
               mbytes
             } else {
-							let pair = self.strings.get((x as usize)-1);
-							if pair.is_none() {
-								return err(&format!["string at index {} not available", x]);
-							}
-							&pair.unwrap().0
+              let pair = self.strings.get((x as usize)-1);
+              if pair.is_none() {
+                return err(&format!["string at index {} not available", x]);
+              }
+              &pair.unwrap().0
             }
           };
           members.push(RelationMember {

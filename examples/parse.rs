@@ -1,4 +1,3 @@
-use o5m_decode::decode;
 use async_std::{prelude::*,fs::File,io};
 
 type Error = Box<dyn std::error::Error+Send+Sync>;
@@ -11,7 +10,7 @@ async fn main() -> Result<(),Error> {
     "-" => Box::new(io::stdin()),
     x => Box::new(File::open(x).await?),
   };
-  let mut stream = decode(infile);
+  let mut stream = o5m_stream::decode(infile);
   while let Some(result) = stream.next().await {
     let r = result?;
     println!["{:?}", r];
