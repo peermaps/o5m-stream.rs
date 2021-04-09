@@ -112,10 +112,6 @@ impl Decoder {
     let mut offset = 0;
     let buf = &self.chunk;
     Ok(match self.data_type {
-      Some(DatasetType::Timestamp()) => {
-        let (_,time) = parse::signed(&buf[offset..])?;
-        Some(Dataset::Timestamp(Timestamp { time }))
-      },
       Some(DatasetType::Node()) => {
         let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
         offset += s;
@@ -244,10 +240,30 @@ impl Decoder {
           tags
         }))
       },
-      Some(DatasetType::BBox()) => {
-        None
+      Some(DatasetType::Timestamp()) => {
+        let (_,time) = parse::signed(&buf[offset..])?;
+        Some(Dataset::Timestamp(Timestamp { time }))
       },
-      _ => None,
+      Some(DatasetType::BBox()) => {
+        let (s,x1) = parse::signed(&buf[offset..])?;
+        offset += s;
+        let (s,y1) = parse::signed(&buf[offset..])?;
+        offset += s;
+        let (s,x2) = parse::signed(&buf[offset..])?;
+        offset += s;
+        let (_,y2) = parse::signed(&buf[offset..])?;
+        Some(Dataset::BBox(BBox {
+          x1: x1 as i32,
+          y1: y1 as i32,
+          x2: x2 as i32,
+          y2: y2 as i32,
+        }))
+      },
+      Some(DatasetType::Header()) => None,
+      Some(DatasetType::Sync()) => None,
+      Some(DatasetType::Jump()) => None,
+      Some(DatasetType::Reset()) => None,
+      None => None,
     })
   }
 }

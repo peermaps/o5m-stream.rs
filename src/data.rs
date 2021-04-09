@@ -124,10 +124,19 @@ impl Element for Relation {
 
 #[derive(Clone,PartialEq,Debug)]
 pub struct BBox {
-  pub x1: i64,
-  pub y1: i64,
-  pub x2: i64,
-  pub y2: i64,
+  pub x1: i32,
+  pub y1: i32,
+  pub x2: i32,
+  pub y2: i32,
+}
+impl BBox {
+  pub fn get_x1(&self) -> f32 { self.x1 as f32 / 1.0e7 }
+  pub fn get_y1(&self) -> f32 { self.y1 as f32 / 1.0e7 }
+  pub fn get_x2(&self) -> f32 { self.x2 as f32 / 1.0e7 }
+  pub fn get_y2(&self) -> f32 { self.y2 as f32 / 1.0e7 }
+  pub fn get_bounds(&self) -> (f32,f32,f32,f32) {
+    (self.get_x1(),self.get_y1(),self.get_x2(),self.get_y2())
+  }
 }
 
 #[derive(Clone,PartialEq,Debug)]
