@@ -3,7 +3,10 @@ name = "o5m-stream"
 version = "1.0.0"
 description = "streaming async o5m decoder"
 edition = "2018"
-license = "BSD"
+license = "BSD-3-Clause"
+readme = "readme.md"
+repository = "https://github.com/peermaps/o5m-stream.rs"
+homepage = "https://github.com/peermaps/o5m-stream.rs"
 
 [dependencies]
 async-std = { version = "1.9.0", features = ["attributes","unstable"] }
