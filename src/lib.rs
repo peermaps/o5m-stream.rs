@@ -238,8 +238,10 @@ impl Decoder {
                 .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
               let mbytes = &buf[offset..i];
               offset = i+1;
-              self.strings.push_front((mbytes.to_vec(),vec![]));
-              if self.strings.len() > 15_000 { self.strings.pop_back(); }
+              if mbytes.len() <= 250 {
+                self.strings.push_front((mbytes.to_vec(),vec![]));
+                if self.strings.len() > 15_000 { self.strings.pop_back(); }
+              }
               mbytes
             } else {
               let pair = self.strings.get((x as usize)-1);

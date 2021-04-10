@@ -73,8 +73,10 @@ pub fn info(buf: &[u8], prev: &Option<Dataset>, strings: &mut Strings)
       let i = offset + buf[offset..].iter()
         .position(|p| *p == 0x00).unwrap_or(buf.len()-offset);
       info.user = Some(std::str::from_utf8(&buf[offset..i])?.to_string());
-      strings.push_front((uid_bytes.to_vec(),buf[offset..i].to_vec()));
-      if strings.len() > 15_000 { strings.pop_back(); }
+      if uid_bytes.len() + (i-offset) <= 250 {
+        strings.push_front((uid_bytes.to_vec(),buf[offset..i].to_vec()));
+        if strings.len() > 15_000 { strings.pop_back(); }
+      }
       offset = i+1;
     } else {
       let pair = strings.get((x as usize)-1);
@@ -109,8 +111,10 @@ pub fn tags(buf: &[u8], strings: &mut Strings) -> Result<(usize,Tags),Error> {
       let value = std::str::from_utf8(value_bytes)?.to_string();
       offset = j+1;
       tags.insert(key, value);
-      strings.push_front((key_bytes.to_vec(),value_bytes.to_vec()));
-      if strings.len() > 15_000 { strings.pop_back(); }
+      if key_bytes.len() + value_bytes.len() <= 250 {
+        strings.push_front((key_bytes.to_vec(),value_bytes.to_vec()));
+        if strings.len() > 15_000 { strings.pop_back(); }
+      }
     } else {
       let pair = strings.get((x as usize)-1);
       if pair.is_none() {
