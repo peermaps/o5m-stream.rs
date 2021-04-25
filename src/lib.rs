@@ -233,6 +233,14 @@ impl Decoder {
       Some(DatasetType::Way()) => {
         let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
         offset += s;
+        if offset == buf.len() {
+          return Ok(Some(Dataset::Way(Way {
+            id,
+            info,
+            data: None,
+            tags: std::collections::HashMap::new(),
+          })));
+        }
         // reflen is the number of BYTES, not the number of refs
         let (s,reflen) = parse::unsigned(&buf[offset..])?;
         offset += s;
@@ -262,6 +270,14 @@ impl Decoder {
       Some(DatasetType::Relation()) => {
         let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
         offset += s;
+        if offset == buf.len() {
+          return Ok(Some(Dataset::Relation(Relation {
+            id,
+            info,
+            data: None,
+            tags: std::collections::HashMap::new(),
+          })));
+        }
         // reflen is the number of BYTES, not the number of refs
         let (s,reflen) = parse::unsigned(&buf[offset..])?;
         offset += s;
