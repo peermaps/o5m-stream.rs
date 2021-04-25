@@ -12,3 +12,4 @@ homepage = "https://github.com/peermaps/o5m-stream.rs"
 async-std = { version = "1.9.0", features = ["attributes","unstable"] }
 futures = "0.3.13"
 pin-project-lite = "0.2.6"
+thiserror = "1.0.24"

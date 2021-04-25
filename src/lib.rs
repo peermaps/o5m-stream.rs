@@ -26,7 +26,7 @@
 //! }
 //! ```
 
-#![feature(async_closure)]
+#![feature(async_closure,backtrace)]
 use async_std::{prelude::*,stream::Stream,io};
 use std::collections::VecDeque;
 
@@ -37,11 +37,49 @@ pub mod parse;
 
 type Error = Box<dyn std::error::Error+Send+Sync>;
 
-pub type DecodeItem = Result<Dataset,Error>;
+pub type DecodeItem = Result<Dataset,DecodeError>;
 pub type DecodeStream = Box<dyn Stream<Item=DecodeItem>+Unpin>;
 
 #[derive(Clone,PartialEq,Debug)]
 enum State { Begin(), Type(), Len(), Data(), End() }
+
+use std::backtrace::Backtrace;
+
+#[derive(thiserror::Error)]
+pub enum DecodeError {
+  #[error("string at index {index} not available")]
+  StringUnavailable {
+    index: usize,
+    #[backtrace] backtrace: Backtrace,
+  },
+  #[error("{info:?}. expected: 0x{expected:02x}, received: 0x{received:02x}")]
+  UnexpectedByte {
+    info: String,
+    expected: u8,
+    received: u8,
+    #[backtrace] backtrace: Backtrace,
+  },
+  #[error("expected 0x30, 0x31, or 0x32 for element type. \
+    received: 0x{received:02x}\n{backtrace}")]
+  UnexpectedElementType {
+    received: u8,
+    #[backtrace] backtrace: Backtrace,
+  },
+  #[error("stream read error {source:?}")]
+  StreamReadError { #[source] source: Box<Error> },
+  #[error("string encoding error {source:?}")]
+  StringEncodingError { #[source] source: Box<Error> },
+  #[error("unterminated signed integer\n{backtrace}")]
+  UnterminatedSignedInteger { #[backtrace] backtrace: Backtrace },
+  #[error("unterminated unsigned integer\n{backtrace}")]
+  UnterminatedUnsignedInteger { #[backtrace] backtrace: Backtrace },
+}
+
+impl std::fmt::Debug for DecodeError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    std::fmt::Display::fmt(self, f)
+  }
+}
 
 struct Decoder {
   reader: Box<dyn io::Read+Unpin>,
@@ -75,17 +113,23 @@ impl Decoder {
       prev: None,
     }
   }
-  pub async fn next_item(&mut self) -> Result<Option<Dataset>,Error> {
+  pub async fn next_item(&mut self) -> Result<Option<Dataset>,DecodeError> {
     loop {
       if self.index >= self.buffer_len {
-        self.buffer_len = self.reader.read(&mut self.buffer).await?;
+        self.buffer_len = self.reader.read(&mut self.buffer).await
+          .map_err(|e| DecodeError::StreamReadError { source: Box::new(e.into()) })?;
         self.index = 0;
         if self.buffer_len == 0 { break }
       }
       while self.index < self.buffer_len {
         let b = self.buffer[self.index];
         if self.state == State::Begin() && b != 0xff {
-          return err(&format!["first byte in frame. expected: 0xff, got: 0x{:02x}", b]);
+          return Err(DecodeError::UnexpectedByte {
+            info: "first byte in frame".to_string(),
+            expected: 0xff,
+            received: b,
+            backtrace: Backtrace::capture(),
+          });
         } else if self.state == State::Begin() {
           self.state = State::Type();
         } else if self.state == State::Type() && b == 0xff { // reset
@@ -130,7 +174,12 @@ impl Decoder {
           }
           self.index = j - 1;
         } else if self.state == State::End() && b != 0xfe {
-          return err(&format!["last byte in frame. expected: 0xf3, got: 0x{:02x}", b]);
+          return Err(DecodeError::UnexpectedByte {
+            info: "last byte in frame".to_string(),
+            expected: 0xf3,
+            received: b,
+            backtrace: Backtrace::capture(),
+          });
         } else if self.state == State::End() {
           // ...
         }
@@ -139,7 +188,7 @@ impl Decoder {
     }
     Ok(None)
   }
-  fn flush(&mut self) -> Result<Option<Dataset>,Error> {
+  fn flush(&mut self) -> Result<Option<Dataset>,DecodeError> {
     let mut offset = 0;
     let buf = &self.chunk;
     Ok(match self.data_type {
@@ -246,7 +295,10 @@ impl Decoder {
             } else {
               let pair = self.strings.get((x as usize)-1);
               if pair.is_none() {
-                return err(&format!["string at index {} not available", x]);
+                return Err(DecodeError::StringUnavailable {
+                  index: x as usize,
+                  backtrace: Backtrace::capture(),
+                });
               }
               &pair.unwrap().0
             }
@@ -257,12 +309,13 @@ impl Decoder {
               0x30 => ElementType::Node(),
               0x31 => ElementType::Way(),
               0x32 => ElementType::Relation(),
-              x => {
-                return err(&format!["expected 0x30, 0x31, or 0x32 ('0','1', or '2') for \
-                  element type. got: 0x{:02x}", x]);
-              }
+              x => return Err(DecodeError::UnexpectedElementType {
+                received: x,
+                backtrace: Backtrace::capture(),
+              }),
             },
-            role: String::from_utf8(mstring[1..].to_vec())?,
+            role: String::from_utf8(mstring[1..].to_vec())
+              .map_err(|e| DecodeError::StringEncodingError { source: Box::new(e.into()) })?,
           });
         }
         let (_,tags) = parse::tags(&buf[offset..], &mut self.strings)?;
@@ -299,18 +352,6 @@ impl Decoder {
       None => None,
     })
   }
-}
-
-#[derive(Debug)]
-pub struct DecoderError { message: String }
-impl std::error::Error for DecoderError {}
-impl std::fmt::Display for DecoderError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write![f, "o5m DecoderError: {}", &self.message]
-  }
-}
-fn err<T>(message: &str) -> Result<T,Box<dyn std::error::Error+Send+Sync>> {
-  Err(Box::new(DecoderError { message: message.to_string() }))
 }
 
 /// Transform the given binary stream `reader` into an stream of fallible `Dataset` items.
