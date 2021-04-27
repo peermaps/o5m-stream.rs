@@ -1,6 +1,6 @@
 [package]
 name = "o5m-stream"
-version = "1.1.1"
+version = "1.1.2"
 description = "streaming async o5m decoder"
 edition = "2018"
 license = "BSD-3-Clause"
