@@ -217,7 +217,7 @@ impl Decoder {
             offset += s;
             (x + (match &self.prev {
               Some(Dataset::Node(node)) => node.data.as_ref()
-                .and_then(|data| Some(data.longitude)),
+                .and_then(|data| Some(data.latitude)),
               _ => None,
             }.unwrap_or(0) as i64)) as i32
           };
