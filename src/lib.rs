@@ -93,6 +93,8 @@ struct Decoder {
   chunk: Vec<u8>,
   size: usize,
   strings: VecDeque<(Vec<u8>,Vec<u8>)>,
+  prev_id: Option<u64>,
+  prev_info: Option<Info>,
   prev: Option<Dataset>,
 }
 
@@ -111,6 +113,8 @@ impl Decoder {
       size: 0,
       strings: VecDeque::new(),
       prev: None,
+      prev_id: None,
+      prev_info: None,
     }
   }
   pub async fn next_item(&mut self) -> Result<Option<Dataset>,DecodeError> {
@@ -135,6 +139,8 @@ impl Decoder {
         } else if self.state == State::Type() && b == 0xff { // reset
           self.state = State::Type();
           self.prev = None;
+          self.prev_id = None;
+          self.prev_info = None;
         } else if self.state == State::Type() {
           self.state = State::Len();
           self.data_type = match b {
@@ -167,7 +173,21 @@ impl Decoder {
             self.size = 0;
             self.chunk.clear();
             if let Some(data) = res {
-              self.prev = Some(data.clone());
+              let save = match &data {
+                Dataset::Node(node) => node.data.is_some(),
+                Dataset::Way(way) => way.data.is_some(),
+                Dataset::Relation(relation) => relation.data.is_some(),
+                _ => true,
+              };
+              if save {
+                self.prev = Some(data.clone());
+              }
+              if let Some(id) = data.get_id() {
+                self.prev_id = Some(id);
+              }
+              if let Some(info) = data.get_info() {
+                self.prev_info = Some(info.clone());
+              }
               self.index = j;
               return Ok(Some(data));
             }
@@ -193,7 +213,12 @@ impl Decoder {
     let buf = &self.chunk;
     Ok(match self.data_type {
       Some(DatasetType::Node()) => {
-        let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
+        let (s,(id,info)) = parse::info(
+          &buf[offset..],
+          &self.prev_id,
+          &self.prev_info,
+          &mut self.strings
+        )?;
         offset += s;
         if offset == buf.len() {
           Some(Dataset::Node(Node {
@@ -231,7 +256,12 @@ impl Decoder {
         }
       },
       Some(DatasetType::Way()) => {
-        let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
+        let (s,(id,info)) = parse::info(
+          &buf[offset..],
+          &self.prev_id,
+          &self.prev_info,
+          &mut self.strings
+        )?;
         offset += s;
         if offset == buf.len() {
           return Ok(Some(Dataset::Way(Way {
@@ -268,7 +298,12 @@ impl Decoder {
         }))
       },
       Some(DatasetType::Relation()) => {
-        let (s,(id,info)) = parse::info(&buf[offset..], &self.prev, &mut self.strings)?;
+        let (s,(id,info)) = parse::info(
+          &buf[offset..],
+          &self.prev_id,
+          &self.prev_info,
+          &mut self.strings
+        )?;
         offset += s;
         if offset == buf.len() {
           return Ok(Some(Dataset::Relation(Relation {

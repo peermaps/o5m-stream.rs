@@ -1,20 +1,15 @@
-use crate::{DecodeError,Dataset,Info,Element};
+use crate::{DecodeError,Info};
 type Strings = std::collections::VecDeque<(Vec<u8>,Vec<u8>)>;
 use std::backtrace::Backtrace;
 
-pub fn info(buf: &[u8], prev: &Option<Dataset>, strings: &mut Strings)
+pub fn info(buf: &[u8], prev_id: &Option<u64>, prev_info: &Option<Info>, strings: &mut Strings)
 -> Result<(usize,(u64,Option<Info>)),DecodeError> {
   let mut offset = 0;
   let mut info = Info::new();
   let id = {
     let (s,x) = signed(&buf[offset..])?;
     offset += s;
-    (x + (match prev {
-      Some(Dataset::Node(node)) => node.id,
-      Some(Dataset::Way(way)) => way.id,
-      Some(Dataset::Relation(relation)) => relation.id,
-      _ => 0,
-    } as i64)) as u64
+    (x + prev_id.unwrap_or(0) as i64) as u64
   };
   info.version = {
     let (s,x) = unsigned(&buf[offset..])?;
@@ -22,16 +17,10 @@ pub fn info(buf: &[u8], prev: &Option<Dataset>, strings: &mut Strings)
     if x == 0 { return Ok((offset, (id, None))) }
     Some(x)
   };
-  let prev_info = match prev {
-    Some(Dataset::Node(node)) => node.get_info(),
-    Some(Dataset::Way(way)) => way.get_info(),
-    Some(Dataset::Relation(relation)) => relation.get_info(),
-    _ => None
-  };
   info.timestamp = {
     let (s,x) = signed(&buf[offset..])?;
     offset += s;
-    let p = prev_info.and_then(|info| {
+    let p = prev_info.as_ref().and_then(|info| {
       Some(info.timestamp.unwrap_or(0))
     }).unwrap_or(0);
     if x + p == 0 { return Ok((offset, (id, Some(info)))) }
@@ -40,7 +29,7 @@ pub fn info(buf: &[u8], prev: &Option<Dataset>, strings: &mut Strings)
   info.changeset = {
     let (s,x) = signed(&buf[offset..])?;
     offset += s;
-    let p = prev_info.and_then(|info| {
+    let p = prev_info.as_ref().and_then(|info| {
       Some(info.changeset.unwrap_or(0))
     }).unwrap_or(0) as i64;
     Some((x + p) as u64)

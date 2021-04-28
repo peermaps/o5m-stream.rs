@@ -6,6 +6,24 @@ pub enum Dataset {
   BBox(BBox),
   Timestamp(Timestamp),
 }
+impl Dataset {
+  pub fn get_id(&self) -> Option<u64> {
+    match self {
+      Self::Node(node) => Some(node.id),
+      Self::Way(way) => Some(way.id),
+      Self::Relation(relation) => Some(relation.id),
+      _ => None,
+    }
+  }
+  pub fn get_info(&self) -> Option<Info> {
+    match self {
+      Self::Node(node) => node.info.clone(),
+      Self::Way(way) => way.info.clone(),
+      Self::Relation(relation) => relation.info.clone(),
+      _ => None,
+    }
+  }
+}
 
 #[derive(Clone,PartialEq,Debug)]
 pub enum DatasetType {
