@@ -317,7 +317,7 @@ impl Decoder {
         let (s,reflen) = parse::unsigned(&buf[offset..])?;
         offset += s;
         let mut members = vec![];
-        let prev_id = match &self.prev {
+        let mut prev_id = match &self.prev {
           Some(Dataset::Relation(rel)) => rel.data.as_ref().and_then(|d| {
             d.members.last().and_then(|m| Some(m.id))
           }).unwrap_or(0),
@@ -330,6 +330,7 @@ impl Decoder {
             offset += s;
             (x + (prev_id as i64)) as u64
           };
+          prev_id = m_id;
           let mstring = {
             let (s,x) = parse::unsigned(&buf[offset..])?;
             offset += s;
