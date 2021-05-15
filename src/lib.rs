@@ -19,7 +19,7 @@ enum State { Begin(), Type(), Len(), Data(), End() }
 
 use std::backtrace::Backtrace;
 
-#[derive(thiserror::Error)]
+#[derive(thiserror::Error,Debug)]
 pub enum DecodeError {
   #[error("string at index {index} not available")]
   StringUnavailable {
@@ -47,12 +47,6 @@ pub enum DecodeError {
   UnterminatedSignedInteger { #[backtrace] backtrace: Backtrace },
   #[error("unterminated unsigned integer\n{backtrace}")]
   UnterminatedUnsignedInteger { #[backtrace] backtrace: Backtrace },
-}
-
-impl std::fmt::Debug for DecodeError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    std::fmt::Display::fmt(self, f)
-  }
 }
 
 struct Decoder {
