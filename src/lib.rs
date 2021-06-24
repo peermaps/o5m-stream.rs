@@ -13,7 +13,7 @@ pub mod parse;
 type Error = Box<dyn std::error::Error+Send+Sync>;
 
 pub type DecodeItem = Result<Dataset,DecodeError>;
-pub type DecodeStream = Box<dyn Stream<Item=DecodeItem>+Unpin>;
+pub type DecodeStream = Box<dyn Stream<Item=DecodeItem>+Send+Unpin>;
 
 #[derive(Clone,PartialEq,Debug)]
 enum State { Begin(), Type(), Len(), Data(), End() }

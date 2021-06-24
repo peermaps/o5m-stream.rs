@@ -8,7 +8,7 @@ streaming async o5m decoder
 use async_std::{prelude::*,fs::File,io};
 
 type Error = Box<dyn std::error::Error+Send+Sync>;
-type R = Box<dyn io::Read+Unpin>;
+type R = Box<dyn io::Read+Send+Unpin>;
 
 #[async_std::main]
 async fn main() -> Result<(),Error> {
