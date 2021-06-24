@@ -20,8 +20,8 @@ pub fn info(buf: &[u8], prev_id: &Option<u64>, prev_info: &Option<Info>, strings
   info.timestamp = {
     let (s,x) = signed(&buf[offset..])?;
     offset += s;
-    let p = prev_info.as_ref().and_then(|info| {
-      Some(info.timestamp.unwrap_or(0))
+    let p = prev_info.as_ref().map(|info| {
+      info.timestamp.unwrap_or(0)
     }).unwrap_or(0);
     if x + p == 0 { return Ok((offset, (id, Some(info)))) }
     Some(x + p)
@@ -29,8 +29,8 @@ pub fn info(buf: &[u8], prev_id: &Option<u64>, prev_info: &Option<Info>, strings
   info.changeset = {
     let (s,x) = signed(&buf[offset..])?;
     offset += s;
-    let p = prev_info.as_ref().and_then(|info| {
-      Some(info.changeset.unwrap_or(0))
+    let p = prev_info.as_ref().map(|info| {
+      info.changeset.unwrap_or(0)
     }).unwrap_or(0) as i64;
     Some((x + p) as u64)
   };
@@ -73,7 +73,7 @@ pub fn info(buf: &[u8], prev_id: &Option<u64>, prev_info: &Option<Info>, strings
         });
       }
       let (uid_bytes,user_bytes) = pair.unwrap();
-      info.uid = Some(unsigned(&uid_bytes)?.1);
+      info.uid = Some(unsigned(uid_bytes)?.1);
       info.user = Some(String::from_utf8(user_bytes.to_vec())
         .map_err(|e| DecodeError::StringEncodingError { source: Box::new(e.into()) })?
       );

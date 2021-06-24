@@ -40,9 +40,9 @@ pub type Tags = std::collections::HashMap<String,String>;
 
 pub trait Element {
   fn get_id(&self) -> u64;
-  fn get_info<'a>(&'a self) -> Option<&'a Info>;
+  fn get_info(&'_ self) -> Option<&'_ Info>;
   fn get_type(&self) -> ElementType;
-  fn get_tags<'a>(&'a self) -> &'a Tags;
+  fn get_tags(&'_ self) -> &'_ Tags;
 }
 
 #[derive(Clone,PartialEq,Debug)]
@@ -63,6 +63,10 @@ impl Info {
       user: None
     }
   }
+}
+
+impl Default for Info {
+  fn default() -> Self { Self::new() }
 }
 
 #[derive(Clone,PartialEq,Debug)]
@@ -87,11 +91,11 @@ impl NodeData {
 }
 impl Element for Node {
   fn get_id(&self) -> u64 { self.id }
-  fn get_info<'a>(&'a self) -> Option<&'a Info> {
+  fn get_info(&'_ self) -> Option<&'_ Info> {
     self.info.as_ref()
   }
   fn get_type(&self) -> ElementType { ElementType::Node() }
-  fn get_tags<'a>(&'a self) -> &'a Tags { &self.tags }
+  fn get_tags(&'_ self) -> &'_ Tags { &self.tags }
 }
 
 #[derive(Clone,PartialEq,Debug)]
@@ -107,11 +111,11 @@ pub struct WayData {
 }
 impl Element for Way {
   fn get_id(&self) -> u64 { self.id }
-  fn get_info<'a>(&'a self) -> Option<&'a Info> {
+  fn get_info(&'_ self) -> Option<&'_ Info> {
     self.info.as_ref()
   }
   fn get_type(&self) -> ElementType { ElementType::Way() }
-  fn get_tags<'a>(&'a self) -> &'a Tags { &self.tags }
+  fn get_tags(&'_ self) -> &'_ Tags { &self.tags }
 }
 
 #[derive(Clone,PartialEq,Debug)]
@@ -133,11 +137,11 @@ pub struct RelationMember {
 }
 impl Element for Relation {
   fn get_id(&self) -> u64 { self.id }
-  fn get_info<'a>(&'a self) -> Option<&'a Info> {
+  fn get_info(&'_ self) -> Option<&'_ Info> {
     self.info.as_ref()
   }
   fn get_type(&self) -> ElementType { ElementType::Relation() }
-  fn get_tags<'a>(&'a self) -> &'a Tags { &self.tags }
+  fn get_tags(&'_ self) -> &'_ Tags { &self.tags }
 }
 
 #[derive(Clone,PartialEq,Debug)]

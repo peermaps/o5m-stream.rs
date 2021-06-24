@@ -1,4 +1,5 @@
-#![feature(extended_key_value_attributes,async_closure,backtrace)]
+#![warn(clippy::future_not_send)]
+#![feature(async_closure,backtrace)]
 #![doc=include_str!("../readme.md")]
 
 use async_std::{prelude::*,stream::Stream,io};
@@ -50,7 +51,7 @@ pub enum DecodeError {
 }
 
 struct Decoder {
-  reader: Box<dyn io::Read+Unpin>,
+  reader: Box<dyn io::Read+Send+Unpin>,
   buffer: Vec<u8>,
   index: usize,
   buffer_len: usize,
@@ -67,7 +68,7 @@ struct Decoder {
 }
 
 impl Decoder {
-  pub fn new(reader: Box<dyn io::Read+Unpin>) -> Self {
+  pub fn new(reader: Box<dyn io::Read+Send+Unpin>) -> Self {
     Self {
       reader,
       buffer: vec![0;4096],
@@ -154,7 +155,7 @@ impl Decoder {
                 self.prev_id = Some(id);
               }
               if let Some(info) = data.get_info() {
-                self.prev_info = Some(info.clone());
+                self.prev_info = Some(info);
               }
               self.index = j;
               return Ok(Some(data));
@@ -201,7 +202,7 @@ impl Decoder {
             offset += s;
             (x + (match &self.prev {
               Some(Dataset::Node(node)) => node.data.as_ref()
-                .and_then(|data| Some(data.longitude)),
+                .map(|data| data.longitude),
               _ => None,
             }.unwrap_or(0) as i64)) as i32
           };
@@ -210,7 +211,7 @@ impl Decoder {
             offset += s;
             (x + (match &self.prev {
               Some(Dataset::Node(node)) => node.data.as_ref()
-                .and_then(|data| Some(data.latitude)),
+                .map(|data| data.latitude),
               _ => None,
             }.unwrap_or(0) as i64)) as i32
           };
@@ -245,7 +246,7 @@ impl Decoder {
         let mut refs = vec![];
         let mut prev_ref = match &self.prev {
           Some(Dataset::Way(way)) => way.data.as_ref().and_then(|d| {
-            d.refs.last().and_then(|r| Some(*r))
+            d.refs.last().copied()
           }).unwrap_or(0),
           _ => 0
         };
@@ -287,7 +288,7 @@ impl Decoder {
         let mut members = vec![];
         let mut prev_id = match &self.prev {
           Some(Dataset::Relation(rel)) => rel.data.as_ref().and_then(|d| {
-            d.members.last().and_then(|m| Some(m.id))
+            d.members.last().map(|m| m.id)
           }).unwrap_or(0),
           _ => 0
         };
@@ -375,7 +376,7 @@ impl Decoder {
 }
 
 /// Transform the given binary stream `reader` into an stream of fallible `Dataset` items.
-pub fn decode(reader: Box<dyn io::Read+Unpin>) -> DecodeStream {
+pub fn decode(reader: Box<dyn io::Read+Send+Unpin>) -> DecodeStream {
   let state = Decoder::new(reader);
   Box::new(unfold::unfold(state, async move |mut qs| {
     match qs.next_item().await {
